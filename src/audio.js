@@ -8,6 +8,8 @@ let _masterGain = null;
 
 export async function startMusic() {
   _audioCtx   = new (window.AudioContext || window.webkitAudioContext)();
+  // Some browsers start the context suspended even inside a click handler
+  await _audioCtx.resume();
   _masterGain = _audioCtx.createGain();
   _masterGain.gain.setValueAtTime(0, _audioCtx.currentTime);
   _masterGain.connect(_audioCtx.destination);
@@ -129,8 +131,8 @@ export async function startMusic() {
     });
   };
 
-  // Schedule 30 loops (~12.8 minutes) — well beyond any typical session
-  for (let i = 0; i < 30; i++) scheduleLoop(t0 + i * LOOP_DUR);
+  // Schedule 8 loops (~3.4 minutes) — enough for a session without stalling on click
+  for (let i = 0; i < 8; i++) scheduleLoop(t0 + i * LOOP_DUR);
 
   _masterGain.gain.linearRampToValueAtTime(0.70, t0 + 2.5);
 }
