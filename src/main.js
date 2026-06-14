@@ -4,7 +4,7 @@ import { createEnvironment } from './environment.js';
 import { createGround }      from './ground.js';
 import { loadBike, fadeBackgroundParts } from './bike.js';
 import { updateCamera }      from './camera.js';
-import { startEngineAudio, stopEngineAudio } from './audio.js';
+import { startMusic, stopMusic } from './audio.js';
 import { createUI }          from './ui.js';
 import {
   state,
@@ -32,12 +32,12 @@ createUI({
     state.introPhase = 0;
     state.introTimer = 0;
     clock.getDelta();
-    startEngineAudio();
+    startMusic();
   },
   onStop: () => {
     state.rideStarted  = false;
     state.displayAngle = state.liveAngle; // resume showcase from current camera angle
-    stopEngineAudio();
+    stopMusic();
   },
 });
 

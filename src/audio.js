@@ -1,125 +1,141 @@
-// Tries /sounds/engine.mp3 first.
-// Drop any Harley recording there (MP3 / OGG / WAV) and it will loop
-// seamlessly, fading in/out with the RIDE / STOP buttons.
-// Falls back to a synthesised V-twin idle when the file is missing.
+// Chill ambient music player.
+// Tries /sounds/music.mp3 first — drop any track there (MP3/OGG/WAV)
+// and it will loop seamlessly, fading in/out with RIDE / STOP.
+// Falls back to a synthesised Am7–Fmaj7–Cmaj7–G pad progression.
 
 let _audioCtx   = null;
 let _masterGain = null;
 
-export async function startEngineAudio() {
+export async function startMusic() {
   _audioCtx   = new (window.AudioContext || window.webkitAudioContext)();
   _masterGain = _audioCtx.createGain();
   _masterGain.gain.setValueAtTime(0, _audioCtx.currentTime);
   _masterGain.connect(_audioCtx.destination);
 
-  let usedFile = false;
-
+  // ── Try user-provided music file ────────────────────────────────────────
   try {
-    const res = await fetch('/sounds/engine.mp3');
+    const res = await fetch('/sounds/music.mp3');
     if (!res.ok) throw new Error('not found');
-    const audioBuf = await _audioCtx.decodeAudioData(await res.arrayBuffer());
-    const src      = _audioCtx.createBufferSource();
-    src.buffer     = audioBuf;
-    src.loop       = true;
+    const src = _audioCtx.createBufferSource();
+    src.buffer = await _audioCtx.decodeAudioData(await res.arrayBuffer());
+    src.loop   = true;
     src.connect(_masterGain);
     src.start();
-    usedFile = true;
+    _masterGain.gain.linearRampToValueAtTime(0.75, _audioCtx.currentTime + 2.0);
+    return;
   } catch (_) { /* fall through to synthesis */ }
 
-  if (!usedFile) {
-    const ctx = _audioCtx;
-    const SR  = ctx.sampleRate;
-    const t0  = ctx.currentTime;
+  // ── Synthesised chill pad fallback ──────────────────────────────────────
+  const ctx = _audioCtx;
+  const t0  = ctx.currentTime;
 
-    const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -12; comp.knee.value    = 6;
-    comp.ratio.value     = 5;   comp.attack.value  = 0.003;
-    comp.release.value   = 0.08;
-    comp.connect(_masterGain);
+  // Reverb: four feedback delay lines at prime-ish times
+  const reverbOut = ctx.createGain();
+  reverbOut.gain.value = 0.38;
+  reverbOut.connect(_masterGain);
 
-    const lpf = ctx.createBiquadFilter();
-    lpf.type  = 'lowpass'; lpf.frequency.value = 650; lpf.Q.value = 1.2;
-    lpf.connect(comp);
+  [[0.17, 0.42], [0.24, 0.36], [0.33, 0.28], [0.43, 0.20]].forEach(([dt, fb]) => {
+    const d = ctx.createDelay(1.0);
+    d.delayTime.value = dt;
+    const g = ctx.createGain();
+    g.gain.value = fb;
+    const f = ctx.createBiquadFilter();
+    f.type = 'lowpass'; f.frequency.value = 2400;
+    d.connect(g); g.connect(f); f.connect(d); // feedback loop
+    f.connect(reverbOut);                      // tap to output
+    // reverbOut will be fed by the dry signal below
+  });
 
-    const hpf = ctx.createBiquadFilter();
-    hpf.type  = 'highpass'; hpf.frequency.value = 48; hpf.Q.value = 0.6;
-    hpf.connect(lpf);
+  // Dry signal chain
+  const padFilter = ctx.createBiquadFilter();
+  padFilter.type = 'lowpass'; padFilter.frequency.value = 900; padFilter.Q.value = 0.8;
+  padFilter.connect(_masterGain);
+  padFilter.connect(reverbOut); // also send dry into reverb input
 
-    const shaper = ctx.createWaveShaper();
-    const SN     = 1024;
-    const sc     = new Float32Array(SN);
-    for (let i = 0; i < SN; i++) {
-      const x = (i / (SN - 1)) * 2 - 1;
-      sc[i]   = x >= 0
-        ? Math.tanh(x * 4.5) / Math.tanh(4.5)
-        : Math.tanh(x * 2.0) / Math.tanh(2.0) * 0.70;
-    }
-    shaper.curve      = sc;
-    shaper.oversample = '4x';
-    shaper.connect(hpf);
+  // Am7 – Fmaj7 – Cmaj7 – G  (chill lo-fi progression)
+  const BPM       = 75;
+  const BEAT      = 60 / BPM;         // 0.8 s
+  const CHORD_DUR = BEAT * 8;         // 6.4 s per chord  (slow & relaxed)
+  const LOOP_DUR  = CHORD_DUR * 4;    // 25.6 s full loop
 
-    // 45° V-twin firing pattern: asymmetric 315°/405° cycle at 900 RPM
-    const cycleSec    = (60 / 900) * 2;
-    const cycleFrames = Math.round(cycleSec * SR);
-    const fire2Frame  = Math.round((315 / 720) * cycleFrames);
-    const patBuf      = ctx.createBuffer(1, cycleFrames, SR);
-    const pd          = patBuf.getChannelData(0);
+  const CHORDS = [
+    { freqs: [220.00, 261.63, 329.63, 392.00], bass: 110.00 }, // Am7
+    { freqs: [174.61, 220.00, 261.63, 329.63], bass:  87.31 }, // Fmaj7
+    { freqs: [130.81, 164.81, 196.00, 246.94], bass:  65.41 }, // Cmaj7
+    { freqs: [196.00, 246.94, 293.66, 392.00], bass:  98.00 }, // G
+  ];
 
-    const addFire = (buf, start, amp) => {
-      const decay = SR * 0.048;
-      const len   = Math.min(buf.length - start, Math.round(SR * 0.21));
-      for (let i = 0; i < len; i++) {
-        const tt = i / SR, e = Math.exp(-i / decay);
-        buf[start + i] = Math.max(-1, Math.min(1, buf[start + i] + amp * e * (
-          0.58 * Math.sin(2 * Math.PI * 88  * tt) +
-          0.28 * Math.sin(2 * Math.PI * 176 * tt + 0.25) +
-          0.14 * Math.sin(2 * Math.PI * 264 * tt + 0.55)
-        )));
-      }
-    };
-    addFire(pd, 0,          1.00);
-    addFire(pd, fire2Frame, 0.88);
-    for (let i = 0; i < cycleFrames; i++) {
-      pd[i] += 0.036 * Math.sin(2 * Math.PI * 44 * (i / SR));
-      pd[i] += 0.015 * (Math.random() * 2 - 1);
-      pd[i]  = Math.max(-1, Math.min(1, pd[i]));
-    }
+  // Melody arpeggios: one note per beat, taken from the chord tones
+  const ARPS = [
+    [329.63, 261.63, 392.00, 220.00, 329.63, 392.00, 261.63, 220.00], // Am7
+    [261.63, 174.61, 329.63, 220.00, 261.63, 329.63, 174.61, 220.00], // Fmaj7
+    [246.94, 130.81, 196.00, 164.81, 246.94, 196.00, 130.81, 164.81], // Cmaj7
+    [293.66, 196.00, 392.00, 246.94, 293.66, 392.00, 246.94, 196.00], // G
+  ];
 
-    const patSrc    = ctx.createBufferSource();
-    patSrc.buffer   = patBuf;
-    patSrc.loop     = true;
-    patSrc.connect(shaper);
-    patSrc.start(t0);
+  const scheduleLoop = (loopStart) => {
+    CHORDS.forEach(({ freqs, bass }, ci) => {
+      const cStart = loopStart + ci * CHORD_DUR;
+      const cEnd   = cStart + CHORD_DUR;
 
-    // Sub-bass thump
-    const sub  = ctx.createOscillator();
-    sub.type   = 'sine'; sub.frequency.value = 14.5;
-    const subG = ctx.createGain(); subG.gain.value = 0.18;
-    sub.connect(subG); subG.connect(_masterGain); sub.start(t0);
+      // ── Pad voices: 3 detuned sawtooth oscillators per chord tone ────────
+      freqs.forEach((freq) => {
+        [-4, 0, 4].forEach((cents) => {
+          const osc = ctx.createOscillator();
+          osc.type  = 'sawtooth';
+          osc.frequency.value = freq * Math.pow(2, cents / 1200);
+          const env = ctx.createGain();
+          env.gain.setValueAtTime(0,               cStart);
+          env.gain.linearRampToValueAtTime(0.018,  cStart + 1.2); // slow attack
+          env.gain.setValueAtTime(0.018,           cEnd - 1.0);
+          env.gain.linearRampToValueAtTime(0,      cEnd + 0.1);   // tail
+          osc.connect(env);
+          env.connect(padFilter);
+          osc.start(cStart);
+          osc.stop(cEnd + 0.3);
+        });
+      });
 
-    // Mechanical texture
-    const nBuf = ctx.createBuffer(1, SR * 2, SR);
-    const nd   = nBuf.getChannelData(0);
-    for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
-    const nSrc = ctx.createBufferSource(); nSrc.buffer = nBuf; nSrc.loop = true;
-    const nBpf = ctx.createBiquadFilter();
-    nBpf.type  = 'bandpass'; nBpf.frequency.value = 820; nBpf.Q.value = 0.5;
-    const nG   = ctx.createGain(); nG.gain.value = 0.022;
-    nSrc.connect(nBpf); nBpf.connect(nG); nG.connect(_masterGain); nSrc.start(t0);
+      // ── Bass: sine an octave below root ──────────────────────────────────
+      const bassOsc = ctx.createOscillator();
+      bassOsc.type  = 'sine';
+      bassOsc.frequency.value = bass;
+      const bassEnv = ctx.createGain();
+      bassEnv.gain.setValueAtTime(0,    cStart);
+      bassEnv.gain.linearRampToValueAtTime(0.28, cStart + 0.08);
+      bassEnv.gain.setValueAtTime(0.22, cStart + CHORD_DUR * 0.6);
+      bassEnv.gain.linearRampToValueAtTime(0,    cEnd);
+      bassOsc.connect(bassEnv);
+      bassEnv.connect(_masterGain);
+      bassOsc.start(cStart);
+      bassOsc.stop(cEnd + 0.1);
 
-    // Slow breathing LFO so the idle never drones
-    const breathOsc       = ctx.createOscillator();
-    breathOsc.type        = 'sine'; breathOsc.frequency.value = 0.25;
-    const breathGain      = ctx.createGain(); breathGain.gain.value = 0.08;
-    breathOsc.connect(breathGain);
-    breathGain.connect(patSrc.playbackRate);
-    breathOsc.start(t0);
-  }
+      // ── Melody: single soft sine, one per beat ───────────────────────────
+      ARPS[ci].forEach((freq, bi) => {
+        const noteStart = cStart + bi * BEAT;
+        const noteEnd   = noteStart + BEAT * 0.7;
+        const mel = ctx.createOscillator();
+        mel.type  = 'sine';
+        mel.frequency.value = freq * 2; // one octave up
+        const melEnv = ctx.createGain();
+        melEnv.gain.setValueAtTime(0,      noteStart);
+        melEnv.gain.linearRampToValueAtTime(0.045, noteStart + 0.04);
+        melEnv.gain.linearRampToValueAtTime(0,     noteEnd);
+        mel.connect(melEnv);
+        melEnv.connect(padFilter);
+        mel.start(noteStart);
+        mel.stop(noteEnd + 0.05);
+      });
+    });
+  };
 
-  _masterGain.gain.linearRampToValueAtTime(0.80, _audioCtx.currentTime + 1.8);
+  // Schedule 30 loops (~12.8 minutes) — well beyond any typical session
+  for (let i = 0; i < 30; i++) scheduleLoop(t0 + i * LOOP_DUR);
+
+  _masterGain.gain.linearRampToValueAtTime(0.70, t0 + 2.5);
 }
 
-export function stopEngineAudio() {
+export function stopMusic() {
   if (!_audioCtx || !_masterGain) return;
   const now = _audioCtx.currentTime;
   _masterGain.gain.cancelScheduledValues(now);
