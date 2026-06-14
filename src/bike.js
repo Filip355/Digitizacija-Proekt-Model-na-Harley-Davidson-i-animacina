@@ -25,9 +25,15 @@ headBeam.castShadow = false;
 bikeContainer.add(headBeam);
 bikeContainer.add(headBeam.target);
 
+const _camLightRe = /^(camera|cam|light|lamp|sun|spot|area|point|bulb|omni|direct)/i;
+
 function removeEmbeddedCamerasAndLights(root) {
   const unwanted = [];
-  root.traverse((o) => { if (o.isCamera || o.isLight) unwanted.push(o); });
+  root.traverse((o) => {
+    if (o.isCamera || o.isLight) { unwanted.push(o); return; }
+    // Blender GLB exports often include mesh stand-ins for cameras/lights
+    if (_camLightRe.test(o.name.trim())) unwanted.push(o);
+  });
   unwanted.forEach((o) => o.parent?.remove(o));
 }
 

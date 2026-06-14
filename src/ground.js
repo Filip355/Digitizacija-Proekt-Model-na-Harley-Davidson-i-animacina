@@ -35,9 +35,6 @@ function makeAsphaltTexture(size = 512) {
     ctx.stroke();
   }
 
-  ctx.fillStyle = 'rgba(50,50,55,0.12)';
-  ctx.fillRect(size * 0.3, 0, size * 0.4, size);
-
   const tex      = new THREE.CanvasTexture(c);
   tex.wrapS      = tex.wrapT = THREE.RepeatWrapping;
   return tex;
