@@ -119,7 +119,7 @@ export function resumeBikeCameraFollow() { state.cameraFollowEnabled = true; }
 // Road markings / street lights — disabled, preserved for future use
 function buildRoadMarkings() { return; } // eslint-disable-line no-unused-vars
 
-export function loadBike({ scene, camera, controls, clock, bgGroup, dust, shadowCatcher }) {
+export function loadBike({ scene, camera, controls, clock, bgGroup, dust, shadowCatcher, onProgress, onReady }) {
   scene.add(bikeContainer);
 
   const deps = { camera, controls, bgGroup, dust, shadowCatcher };
@@ -166,7 +166,6 @@ export function loadBike({ scene, camera, controls, clock, bgGroup, dust, shadow
         });
 
         playAllAnimations();
-        buildRoadMarkings();
         // Reset after sampling so followPosition is correct on frame 1
         state.mixer.setTime(ANIMATION_START_TIME);
         frameCameraOnBike(deps);
@@ -174,13 +173,15 @@ export function loadBike({ scene, camera, controls, clock, bgGroup, dust, shadow
       } else {
         console.warn('GLB has no animations.');
       }
+      onReady?.();
     },
-    (e) => { if (e.total > 0) console.log(`Loading: ${Math.round((e.loaded / e.total) * 100)}%`); },
+    (e) => {
+      if (e.total > 0) {
+        const pct = Math.round((e.loaded / e.total) * 100);
+        console.log(`Loading: ${pct}%`);
+        onProgress?.(pct);
+      }
+    },
     (e) => { console.error('Load error:', e); },
   );
 }
-
-// Console helpers
-window.playBikeAnimation      = playAnimation;
-window.playAllBikeAnimations  = playAllAnimations;
-window.resumeBikeCameraFollow = resumeBikeCameraFollow;

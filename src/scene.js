@@ -24,12 +24,15 @@ export function createScene() {
 
   const camera = new THREE.PerspectiveCamera(34, window.innerWidth / window.innerHeight, 0.05, 90);
 
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  const dpr      = Math.min(window.devicePixelRatio, 2);
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: dpr < 2 });
   renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.outputColorSpace  = THREE.SRGBColorSpace;
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type    = THREE.PCFSoftShadowMap;
+  renderer.setPixelRatio(dpr);
+  renderer.outputColorSpace    = THREE.SRGBColorSpace;
+  renderer.toneMapping         = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.1;
+  renderer.shadowMap.enabled   = true;
+  renderer.shadowMap.type      = THREE.PCFShadowMap;
 
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
@@ -45,8 +48,15 @@ export function createScene() {
 
   const keyLight = new THREE.DirectionalLight(0xffffff, 3.2);
   keyLight.position.set(4, 5, 3);
-  keyLight.castShadow = true;
+  keyLight.castShadow              = true;
   keyLight.shadow.mapSize.set(1024, 1024);
+  keyLight.shadow.bias             = -0.0001;
+  keyLight.shadow.camera.near      = 0.5;
+  keyLight.shadow.camera.far       = 20;
+  keyLight.shadow.camera.left      = -4;
+  keyLight.shadow.camera.right     = 4;
+  keyLight.shadow.camera.top       = 4;
+  keyLight.shadow.camera.bottom    = -4;
   scene.add(keyLight);
 
   const rimLight = new THREE.DirectionalLight(0x87d8ff, 1.5);
