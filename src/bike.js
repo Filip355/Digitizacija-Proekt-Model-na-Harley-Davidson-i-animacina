@@ -12,6 +12,19 @@ const loader = new GLTFLoader();
 
 export const bikeContainer = new THREE.Group();
 
+// Headlight glow — warm point light at lamp position
+const headlight = new THREE.PointLight(0xfff2cc, 6, 8, 2);
+headlight.position.set(0, 0.9, 0.5);
+bikeContainer.add(headlight);
+
+// Road beam — narrow spot illuminating the asphalt ahead
+const headBeam = new THREE.SpotLight(0xfff8e8, 10, 16, Math.PI / 9, 0.45, 1.8);
+headBeam.position.set(0, 0.9, 0.5);
+headBeam.target.position.set(0, -0.5, 6);
+headBeam.castShadow = false;
+bikeContainer.add(headBeam);
+bikeContainer.add(headBeam.target);
+
 function removeEmbeddedCamerasAndLights(root) {
   const unwanted = [];
   root.traverse((o) => { if (o.isCamera || o.isLight) unwanted.push(o); });
